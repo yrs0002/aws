@@ -1,0 +1,51 @@
+name: Deploy Lambda
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'lambda/**'
+      - '.github/workflows/deploy.yml'
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      AWS_REGION: us-east-1
+      FUNCTION_NAME: hello-from-github
+      EXEC_ROLE_ARN: arn:aws:iam::422766738377:role/lambda-hello-exec-role
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::422766738377:role/github-action-deploy-role
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Package Lambda
+        run: |
+          cd lambda
+          zip -r ../function.zip handler.py
+
+      - name: Create or update function
+        run: |
+          if aws lambda get-function --function-name "$FUNCTION_NAME" >/dev/null 2>&1; then
+            echo "Function exists → updating code"
+            aws lambda update-function-code \
+              --function-name "$FUNCTION_NAME" \
+              --zip-file fileb://function.zip
+          else
+            echo "Function does not exist → creating"
+            aws lambda create-function \
+              --function-name "$FUNCTION_NAME" \
+              --runtime python3.12 \
+              --role "$EXEC_ROLE_ARN" \
+              --handler handler.lambda_handler \
+              --zip-file fileb://function.zip
+          fi
